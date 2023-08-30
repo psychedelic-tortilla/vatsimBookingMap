@@ -1,0 +1,7 @@
+/debug/
+/build/
+/dist/
+/venv/
+/desired_bookings.html
+/vatsimBookingMap.html
+/vatsimBookingMap.spec
