@@ -119,9 +119,10 @@ class Map(object):
                     folium.Marker(location=(lat, long), popup=' '.join(map(str, pos.values)), tooltip=icao).add_to(
                         self.map)
                 if pos.str.contains("APP").any():
+                    folium.Marker(location=(lat, long), popup=' '.join(map(str, pos.values)), tooltip=icao).add_to(
+                        self.map)
                     folium.CircleMarker(location=(lat, long), radius=25, color="#3186cc", fill=True,
-                                        fill_color="#3186cc", popup=' '.join(map(str, pos.values)),
-                                        tooltip=icao).add_to(self.map)
+                                        fill_color="#3186cc", tooltip=icao).add_to(self.map)
             # Station ID is an alternate callsign (thanks for nothing, UK)
             elif alt_airport_callsign.str.match(icao).any():
                 lat = self.airports.loc[self.airports["IATA/LID"] == icao, "LAT"].item()
@@ -130,9 +131,10 @@ class Map(object):
                     folium.Marker(location=(lat, long), popup=' '.join(map(str, pos.values)), tooltip=icao).add_to(
                         self.map)
                 if pos.str.contains("APP").any():
+                    folium.Marker(location=(lat, long), popup=' '.join(map(str, pos.values)), tooltip=icao).add_to(
+                        self.map)
                     folium.CircleMarker(location=(lat, long), radius=25, color="#3186cc", fill=True,
-                                        fill_color="#3186cc", popup=' '.join(map(str, pos.values)),
-                                        tooltip=icao).add_to(self.map)
+                                        fill_color="#3186cc", tooltip=icao).add_to(self.map)
             # Station ID is an FIR identifier
             else:
                 fir_ids = (icao + "-" + pos)
@@ -146,11 +148,13 @@ class Map(object):
                         bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_formatted, "geometry"]
                         folium.GeoJson(bnd_polygon, tooltip=fir_id_formatted, style_function=lambda x: self.style).add_to(self.map)
                     # No exact match in GeoJSON boundary database --> Map the callsign prefix to the corresponding FIR id
-                    # else:
-                        # fir_csp = fir_id.split("-")[:2].join("_")
-                        # bnd_polygon = self.fir_boundaries.loc[
-                        #     self.fir_boundaries["id"] == fir.split("-")[0], "geometry"]
-                        # folium.GeoJson(bnd_polygon, tooltip=fir, style_function=lambda x: self.style).add_to(self.map)
+                    else:
+                        fir_csp = "_".join(fir_id_formatted.split("-")[:2])
+                        print(fir_csp)
+                        fir_id_alt = self.fir_information.loc[self.fir_information["CALLSIGN PREFIX"] == fir_csp, "FIR BOUNDARY"].item()
+                        bnd_polygon = self.fir_boundaries.loc[
+                            self.fir_boundaries["id"] == fir_id_alt, "geometry"]
+                        folium.GeoJson(bnd_polygon, tooltip=fir_csp, style_function=lambda x: self.style).add_to(self.map)
 
     def draw(self):
         self.map.save("vatsimBookingMap.html")
