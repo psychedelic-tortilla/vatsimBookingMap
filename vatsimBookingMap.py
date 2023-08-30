@@ -37,8 +37,6 @@ class Bookings(object):
         """Remove unnecessary columns "vatsimid", "name" and "added" """
         self.df.drop(columns=["vatsimid", "name", "added"], inplace=True)
 
-        # """Remove invalid ICAO codes"""  # self.df.drop(self.df[self.df["airport"].str.len() != 4].index, inplace=True)
-
 
 class Airports(object):
     def __init__(self, path):
@@ -101,6 +99,7 @@ class Map(object):
         self.fir_boundaries = fir_boundaries
         self.fir_idents = []
         self.style = {'fillColor': '#f5532f80', 'color': '#ff213680'}
+        self.set_marker = False
 
         self.populate_map()
         self.draw()
@@ -108,19 +107,27 @@ class Map(object):
     def populate_map(self):
         online_airports = self.filtered_bookings["airport"].unique()
         for icao in online_airports:
+            self.set_marker = False
             airport_code = self.airports["ICAO"]
             alt_airport_callsign = self.airports["IATA/LID"]
             pos = self.filtered_bookings.loc[self.filtered_bookings["airport"] == icao, "position"]
+            pos_time = self.filtered_bookings.loc[self.filtered_bookings["airport"] == icao,
+                       "position":"end"]  # .to_string(index=False)
+            pos_time_html = pos_time.to_html(index=False)
+            # popup_text = ' '.join(map(str, pos.values))
+            # popup_text = pos_time
+            iframe = folium.IFrame(html=pos_time_html, width=300, height=300)
+            popup_text = folium.Popup(iframe, max_width=2650, parse_html=True)
             # Station ID is an airport and has the normal ICAO identifier
             if airport_code.str.match(icao).any():
                 lat = self.airports.loc[self.airports["ICAO"] == icao, "LAT"].item()
                 long = self.airports.loc[self.airports["ICAO"] == icao, "LONG"].item()
                 if pos.str.contains("DEL|GND|TWR").any():
-                    folium.Marker(location=(lat, long), popup=' '.join(map(str, pos.values)), tooltip=icao).add_to(
-                        self.map)
+                    folium.Marker(location=(lat, long), popup=popup_text, tooltip=icao).add_to(self.map)
+                    self.set_marker = True
                 if pos.str.contains("APP").any():
-                    folium.Marker(location=(lat, long), popup=' '.join(map(str, pos.values)), tooltip=icao).add_to(
-                        self.map)
+                    if not self.set_marker:
+                        folium.Marker(location=(lat, long), popup=popup_text, tooltip=icao).add_to(self.map)
                     folium.CircleMarker(location=(lat, long), radius=25, color="#3186cc", fill=True,
                                         fill_color="#3186cc", tooltip=icao).add_to(self.map)
             # Station ID is an alternate callsign (thanks for nothing, UK)
@@ -128,11 +135,11 @@ class Map(object):
                 lat = self.airports.loc[self.airports["IATA/LID"] == icao, "LAT"].item()
                 long = self.airports.loc[self.airports["IATA/LID"] == icao, "LONG"].item()
                 if pos.str.contains("DEL|GND|TWR").any():
-                    folium.Marker(location=(lat, long), popup=' '.join(map(str, pos.values)), tooltip=icao).add_to(
-                        self.map)
+                    folium.Marker(location=(lat, long), popup=popup_text, tooltip=icao).add_to(self.map)
+                    self.set_marker = True
                 if pos.str.contains("APP").any():
-                    folium.Marker(location=(lat, long), popup=' '.join(map(str, pos.values)), tooltip=icao).add_to(
-                        self.map)
+                    if not self.set_marker:
+                        folium.Marker(location=(lat, long), popup=popup_text, tooltip=icao).add_to(self.map)
                     folium.CircleMarker(location=(lat, long), radius=25, color="#3186cc", fill=True,
                                         fill_color="#3186cc", tooltip=icao).add_to(self.map)
             # Station ID is an FIR identifier
@@ -146,15 +153,16 @@ class Map(object):
                     # The FIR identifier matches in the GeoJSON db
                     if self.fir_boundaries["id"].str.match(fir_id_formatted).any():
                         bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_formatted, "geometry"]
-                        folium.GeoJson(bnd_polygon, tooltip=fir_id_formatted, style_function=lambda x: self.style).add_to(self.map)
+                        folium.GeoJson(bnd_polygon, tooltip=fir_id_formatted,
+                                       style_function=lambda x: self.style).add_to(self.map)
                     # No exact match in GeoJSON boundary database --> Map the callsign prefix to the corresponding FIR id
                     else:
                         fir_csp = "_".join(fir_id_formatted.split("-")[:2])
-                        print(fir_csp)
-                        fir_id_alt = self.fir_information.loc[self.fir_information["CALLSIGN PREFIX"] == fir_csp, "FIR BOUNDARY"].item()
-                        bnd_polygon = self.fir_boundaries.loc[
-                            self.fir_boundaries["id"] == fir_id_alt, "geometry"]
-                        folium.GeoJson(bnd_polygon, tooltip=fir_csp, style_function=lambda x: self.style).add_to(self.map)
+                        fir_id_alt = self.fir_information.loc[
+                            self.fir_information["CALLSIGN PREFIX"] == fir_csp, "FIR BOUNDARY"].item()
+                        bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_alt, "geometry"]
+                        folium.GeoJson(bnd_polygon, tooltip=fir_csp, style_function=lambda x: self.style).add_to(
+                            self.map)
 
     def draw(self):
         self.map.save("vatsimBookingMap.html")
@@ -193,7 +201,8 @@ if __name__ == "__main__":
 
     desired_bookings_df = desired_bookings_df.style.set_caption(
         "\n=== Stations booked on {} at {} ===\n\nFIR identifiers: \n\n{}".format(desired_date.strftime("%Y-%m-%d"),
-            desired_time.strftime('%X'), ' '.join(map(str, booking_map.fir_idents))))
+                                                                                  desired_time.strftime('%X'), ' '.join(
+                map(str, booking_map.fir_idents))))
     desired_bookings_df.to_html("desired_bookings.html", index_names=False)
 
     chrome_path = "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe %s"
