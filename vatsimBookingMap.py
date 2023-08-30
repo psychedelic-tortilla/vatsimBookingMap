@@ -1,7 +1,7 @@
 import os
 import datetime
 import json
-from tkinter import *
+import tkinter as tk
 from urllib.request import urlopen
 import webbrowser
 
@@ -9,6 +9,7 @@ import folium
 import pandas as pd
 import geopandas as gpd
 from tkcalendar import *
+from tktimepicker import SpinTimePickerOld, constants
 
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_colwidth', None)
@@ -68,7 +69,7 @@ class DatePicker(object):
 
     def display_date_picker(self):
         # Create Object
-        self.root = Tk()
+        self.root = tk.Tk()
 
         # Set geometry
         self.root.geometry("400x400")
@@ -79,15 +80,49 @@ class DatePicker(object):
         self.cal.pack(pady=20)
 
         # Add Button and Label
-        Button(self.root, text="Get Date", command=self.grad_date).pack(pady=20)
+        tk.Button(self.root, text="Get Date", command=self.grad_date).pack(pady=20)
 
-        self.date = Label(self.root, text="")
+        self.date = tk.Label(self.root, text="")
         self.date.pack(pady=20)
 
         # Execute Tkinter
         self.root.mainloop()
 
         self.picked_date = self.cal.selection_get()
+
+
+class TimePicker(object):
+    def __init__(self):
+        self.time = 18
+        self.root = tk.Tk()
+
+        self.time_lbl = tk.Label(self.root, text="Time:")
+        self.time_lbl.pack()
+
+        time_btn = tk.Button(self.root, text="Get Time", command=self.get_time)
+        time_btn.pack()
+
+        self.root.mainloop()
+
+    def update_time(self, time):
+        self.time_lbl.configure(
+            text="{}:{}:{}".format(*time))  # if you are using 24 hours, remove the 3rd flower bracket its for period
+
+    def get_time(self):
+        top = tk.Toplevel(self.root)
+
+        tp = SpinTimePickerOld(top)
+        tp.addAll(constants.HOURS24)  # adds hours clock, minutes and period
+        tp.configure_separator(bg="#404040", fg="#ffffff")
+        tp.addHours24()
+
+        tp.pack(expand=True, fill="both")
+
+        ok_btn = tk.Button(top, text="OK", command=lambda: self.update_time(tp.time()))
+        ok_btn.pack()
+
+        self.time = tp.time()
+        print("self.time = {}".format(self.time))
 
 
 class Map(object):
@@ -206,7 +241,11 @@ if __name__ == "__main__":
     fir_bounds = fir_data.fir_boundaries
 
     # Pick the date and filter the data
+    time_picker = TimePicker()
     date_picker = DatePicker()
+
+    picked_hour = time_picker.time
+    print("Picked Hour: {}".format(picked_hour))
 
     desired_date = pd.Timestamp(date_picker.picked_date).date()
     desired_time = pd.Timestamp(2023, 5, 3, 18, 0, 0).time()
