@@ -58,7 +58,6 @@ class Map(object):
         self.set_marker = False
 
         self.populate_map()
-        self.draw()
 
     def populate_map(self):
         online_airports = self.filtered_bookings["airport"].unique()
@@ -153,7 +152,8 @@ class Renderer(object):
         self.bookings = Bookings(booking_data=self.booking_data).df
         self.airports = Airports(vatspy_path).df
         self.fir = FIRs(vatspy_path, boundaries_path)
-        self.map = None
+        self.rendered_map = None
+        self.desired_bookings = None
 
     def render(self, timestamp: pd.Timestamp):
         fir_info = self.fir.fir_info
@@ -162,27 +162,16 @@ class Renderer(object):
         desired_date = timestamp.date()
         desired_time = timestamp.time()
 
-        desired_bookings = self.bookings[
+        self.desired_bookings = self.bookings[
             (self.bookings["date"] == desired_date) & (self.bookings["start"] <= desired_time) & (
                     desired_time < self.bookings["end"])]
-        desired_bookings = desired_bookings.sort_values("airport")
+        self.desired_bookings = self.desired_bookings.sort_values("airport")
 
-        self.map = Map(desired_bookings, self.airports, fir_info, fir_bounds).draw()
+        self.rendered_map = Map(self.desired_bookings, self.airports, fir_info, fir_bounds).draw()
 
-    def show(self):
-        self.map.show_in_browser()
+    def get_map(self) -> folium.Map:
+        self.rendered_map.save("L:\\Projects\\vatsimBookingMap\\vatsimBookingMap.html")
+        return self.rendered_map
 
-
-if __name__ == "__main__":
-    statsim_url = "https://statsim.net/atc/?json=true"
-    vatspy_data = ".\\db\\VATSpy.dat"
-    fir_boundary_data = ".\\db\\Boundaries.geojson"
-
-    date = datetime.date.today()
-    time = datetime.time(18, 0, 0)
-    timestamp = datetime.datetime.combine(date, time)
-    desired_timestamp = pd.Timestamp(timestamp)
-
-    booking_map = Renderer(bookings_url=statsim_url, vatspy_path=vatspy_data, boundaries_path=fir_boundary_data)
-    booking_map.render(timestamp=desired_timestamp)
-    booking_map.show()
+    def get_desired_bookings(self):
+        return self.desired_bookings
