@@ -70,8 +70,6 @@ class Map(object):
             pos_time = self.filtered_bookings.loc[self.filtered_bookings["airport"] == icao,
                        "position":"end"]  # .to_string(index=False)
             pos_time_html = pos_time.to_html(index=False)
-            # popup_text = ' '.join(map(str, pos.values))
-            # popup_text = pos_time
             iframe = folium.IFrame(html=pos_time_html, width=300, height=300)
             popup_text = folium.Popup(iframe, max_width=2650, parse_html=True)
 
@@ -142,7 +140,6 @@ class Map(object):
                             self.map)
 
     def draw(self) -> folium.Map:
-        # self.map.save("vatsimBookingMap.html")
         return self.map
 
 
