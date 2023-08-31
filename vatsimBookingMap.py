@@ -1,19 +1,10 @@
-import os
 import datetime
 import json
-import tkinter as tk
 from urllib.request import urlopen
-import webbrowser
 
 import folium
-import pandas as pd
 import geopandas as gpd
-from tkcalendar import *
-from tktimepicker import SpinTimePickerOld, constants
-
-pd.set_option('display.max_columns', None)
-pd.set_option('display.max_colwidth', None)
-pd.set_option('display.max_rows', None)
+import pandas as pd
 
 
 class Bookings(object):
@@ -53,76 +44,6 @@ class FIRs(object):
         self.fir_info = pd.read_csv(fir_data_path, skiprows=17799, nrows=(18441 - 17800), sep="|").rename(
             columns={";ICAO": "ICAO"})
         self.fir_boundaries = gpd.read_file(fir_boundaries_path)
-
-
-class DatePicker(object):
-    def __init__(self):
-        self.date = None
-        self.root = None
-        self.cal = None
-        self.picked_date = None
-        self.display_date_picker()
-
-    def grad_date(self):
-        self.date.config(text="Selected Date is: " + self.cal.get_date())
-        self.root.quit()
-
-    def display_date_picker(self):
-        # Create Object
-        self.root = tk.Tk()
-
-        # Set geometry
-        self.root.geometry("400x400")
-
-        # Add Calendar
-        self.cal = Calendar(self.root, selectmode='day', date=datetime.date.today())
-
-        self.cal.pack(pady=20)
-
-        # Add Button and Label
-        tk.Button(self.root, text="Get Date", command=self.grad_date).pack(pady=20)
-
-        self.date = tk.Label(self.root, text="")
-        self.date.pack(pady=20)
-
-        # Execute Tkinter
-        self.root.mainloop()
-
-        self.picked_date = self.cal.selection_get()
-
-
-class TimePicker(object):
-    def __init__(self):
-        self.time = 18
-        self.root = tk.Tk()
-
-        self.time_lbl = tk.Label(self.root, text="Time:")
-        self.time_lbl.pack()
-
-        time_btn = tk.Button(self.root, text="Get Time", command=self.get_time)
-        time_btn.pack()
-
-        self.root.mainloop()
-
-    def update_time(self, time):
-        self.time_lbl.configure(
-            text="{}:{}:{}".format(*time))  # if you are using 24 hours, remove the 3rd flower bracket its for period
-
-    def get_time(self):
-        top = tk.Toplevel(self.root)
-
-        tp = SpinTimePickerOld(top)
-        tp.addAll(constants.HOURS24)  # adds hours clock, minutes and period
-        tp.configure_separator(bg="#404040", fg="#ffffff")
-        tp.addHours24()
-
-        tp.pack(expand=True, fill="both")
-
-        ok_btn = tk.Button(top, text="OK", command=lambda: self.update_time(tp.time()))
-        ok_btn.pack()
-
-        self.time = tp.time()
-        print("self.time = {}".format(self.time))
 
 
 class Map(object):
@@ -201,12 +122,14 @@ class Map(object):
 
                     # The FIR identifier matches in the GeoJSON db
                     if self.fir_boundaries["id"].str.match(fir_id_formatted).any():
+                        print("{} produced a direct match.".format(fir_id_formatted))
                         bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_formatted, "geometry"]
                         folium.GeoJson(bnd_polygon, tooltip=fir_id_formatted,
                                        style_function=lambda x: self.style).add_to(self.map)
 
                     # No exact match in GeoJSON boundary database --> Map the callsign prefix to the corresponding FIR id
                     elif self.fir_information["CALLSIGN PREFIX"].str.match(fir_csp).any():
+                        print("{} has no direct match. Matching the callsign {}.".format(fir_id_formatted, fir_csp))
                         fir_id_alt = self.fir_information.loc[
                             self.fir_information["CALLSIGN PREFIX"] == fir_csp, "FIR BOUNDARY"].item()
                         bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_alt, "geometry"]
@@ -214,60 +137,52 @@ class Map(object):
                             self.map)
                     # The callsign prefix didn't match either --> Discard the suffix and match on the ICAO only (inaccurate, but hey, what can ya do?)
                     elif self.fir_boundaries["id"].str.match(fir_icao).any():
-                        print("{} failed".format(fir_csp))
+                        print("{} failed. Matching on {}.".format(fir_csp, fir_icao))
                         bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_icao, "geometry"]
                         folium.GeoJson(bnd_polygon, tooltip=fir_icao, style_function=lambda x: self.style).add_to(
                             self.map)
 
-    def draw(self):
-        self.map.save("vatsimBookingMap.html")
+    def draw(self) -> folium.Map:
+        # self.map.save("vatsimBookingMap.html")
+        return self.map
+
+
+class Renderer(object):
+    def __init__(self, bookings_url, vatspy_path, boundaries_path):
+        self.booking_data = json.loads(urlopen(bookings_url).read().decode())
+        self.bookings = Bookings(booking_data=self.booking_data).df
+        self.airports = Airports(vatspy_path).df
+        self.fir = FIRs(vatspy_path, boundaries_path)
+        self.map = None
+
+    def render(self, timestamp: pd.Timestamp):
+        fir_info = self.fir.fir_info
+        fir_bounds = self.fir.fir_boundaries
+
+        desired_date = timestamp.date()
+        desired_time = timestamp.time()
+
+        desired_bookings = self.bookings[
+            (self.bookings["date"] == desired_date) & (self.bookings["start"] <= desired_time) & (
+                    desired_time < self.bookings["end"])]
+        desired_bookings = desired_bookings.sort_values("airport")
+
+        self.map = Map(desired_bookings, self.airports, fir_info, fir_bounds).draw()
+
+    def show(self):
+        self.map.show_in_browser()
 
 
 if __name__ == "__main__":
-    # Get booking data from statsim
-    data = urlopen("https://statsim.net/atc/?json=true")
-    data_json = json.loads(data.read().decode())
+    statsim_url = "https://statsim.net/atc/?json=true"
+    vatspy_data = ".\\db\\VATSpy.dat"
+    fir_boundary_data = ".\\db\\Boundaries.geojson"
 
-    # Load booking data
-    bookings_df = Bookings(data_json).df
-    bookings_df.to_html(".\\debug\\bookings.html")
+    date = datetime.date.today()
+    time = datetime.time(18, 0, 0)
+    timestamp = datetime.datetime.combine(date, time)
+    desired_timestamp = pd.Timestamp(timestamp)
 
-    # Load aiport coordinate data
-    airports_df = Airports(".\\db\\VATSpy.dat").df
-
-    # Load FIR data
-    fir_data = FIRs(".\\db\\VATSpy.dat", ".\\db\\Boundaries.geojson")
-    fir_info = fir_data.fir_info
-    fir_bounds = fir_data.fir_boundaries
-
-    # Pick the date and filter the data
-    time_picker = TimePicker()
-    date_picker = DatePicker()
-
-    picked_hour = time_picker.time
-    print("Picked Hour: {}".format(picked_hour))
-
-    desired_date = pd.Timestamp(date_picker.picked_date).date()
-    desired_time = pd.Timestamp(2023, 5, 3, 18, 0, 0).time()
-
-    desired_bookings_df = bookings_df[(bookings_df["date"] == desired_date) & (bookings_df["start"] <= desired_time) & (
-            desired_time < bookings_df["end"])]
-    desired_bookings_df = desired_bookings_df.sort_values("airport")
-
-    # Display the map
-    booking_map = Map(desired_bookings_df, airports_df, fir_info, fir_bounds)
-    booking_map.draw()
-
-    desired_bookings_df = desired_bookings_df.style.set_caption(
-        "\n=== Stations booked on {} at {} ===\n\nFIR identifiers: \n\n{}".format(desired_date.strftime("%Y-%m-%d"),
-                                                                                  desired_time.strftime('%X'), ' '.join(
-                map(str, booking_map.fir_idents))))
-    desired_bookings_df.to_html("desired_bookings.html", index_names=False)
-
-    chrome_path = "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe %s"
-    bookings_save_path = "file:///{}/desired_bookings.html".format(os.getcwd())
-    map_save_path = "file:///{}/vatsimBookingMap.html".format(os.getcwd())
-
-    webbrowser.get(chrome_path).open(bookings_save_path)
-
-    webbrowser.get(chrome_path).open_new_tab(map_save_path)
+    booking_map = Renderer(bookings_url=statsim_url, vatspy_path=vatspy_data, boundaries_path=fir_boundary_data)
+    booking_map.render(timestamp=desired_timestamp)
+    booking_map.show()
