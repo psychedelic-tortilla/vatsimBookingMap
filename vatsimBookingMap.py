@@ -3,6 +3,7 @@ import json
 from urllib.request import urlopen
 
 import folium
+from folium import plugins
 import geopandas as gpd
 import pandas as pd
 
@@ -55,89 +56,111 @@ class Map(object):
         self.fir_boundaries = fir_boundaries
         self.fir_idents = []
         self.style = {'fillColor': '#f5532f80', 'color': '#ff213680'}
+        self.popup_text = None
         self.set_marker = False
 
         self.populate_map()
 
     def populate_map(self):
-        online_airports = self.filtered_bookings["airport"].unique()
-        airport_code = self.airports["ICAO"]
-        alt_airport_callsign = self.airports["IATA/LID"]
+        online_stations = self.filtered_bookings["airport"].unique()
+        airport_codes = self.airports["ICAO"]
+        alt_airport_codes = self.airports["IATA/LID"]
+        firs = self.airports["FIR"]
 
-        for icao in online_airports:
+        for icao in online_stations:
             self.set_marker = False
+
             pos = self.filtered_bookings.loc[self.filtered_bookings["airport"] == icao, "position"]
             pos_time = self.filtered_bookings.loc[self.filtered_bookings["airport"] == icao,
                        "position":"end"]  # .to_string(index=False)
             pos_time_html = pos_time.to_html(index=False)
-            iframe = folium.IFrame(html=pos_time_html, width=300, height=300)
-            popup_text = folium.Popup(iframe, max_width=2650, parse_html=True)
 
-            matches = airport_code.str.match(icao)
+            iframe = folium.IFrame(html=pos_time_html, width=300, height=200)
+            self.popup_text = folium.Popup(iframe, max_width=2650, parse_html=True)
+
+            matching_on_icao = airport_codes.str.match(icao).any()
+            matching_on_alt_airport_code = alt_airport_codes.str.match(icao).any()
+            matching_on_icao_and_fir = matching_on_icao and firs.str.match(icao).any()
+            number_of_matches = airport_codes.str.match(icao).values[1]
+
+            # Station ID matches on both the airport and a FIR (sometimes happens in Russia)
+            if matching_on_icao_and_fir:
+                self.handle_airport_code(icao, number_of_matches, pos)
+                self.handle_fir(icao, pos)
+
             # Station ID is an airport and has the normal ICAO identifier
-            if matches.any():
-                # Airport has no duplicates
-                if matches.value_counts().values[1] == 1:
-                    lat = self.airports.loc[self.airports["ICAO"] == icao, "LAT"].item()
-                    long = self.airports.loc[self.airports["ICAO"] == icao, "LONG"].item()
-                # Airport has duplicates, but coordinates are the same --> take the first entry
-                else:
-                    lat = self.airports.loc[self.airports["ICAO"] == icao, "LAT"].values[0]
-                    long = self.airports.loc[self.airports["ICAO"] == icao, "LONG"].values[0]
-                if pos.str.contains("DEL|GND|TWR").any():
-                    folium.Marker(location=(lat, long), popup=popup_text, tooltip=icao).add_to(self.map)
-                    self.set_marker = True
-                if pos.str.contains("APP").any():
-                    if not self.set_marker:
-                        folium.Marker(location=(lat, long), popup=popup_text, tooltip=icao).add_to(self.map)
-                    folium.CircleMarker(location=(lat, long), radius=25, color="#3186cc", fill=True,
-                                        fill_color="#3186cc", tooltip=icao).add_to(self.map)
+            elif matching_on_icao:
+                self.handle_airport_code(icao, number_of_matches, pos)
 
             # Station ID is an alternate callsign (thanks for nothing, UK)
-            elif alt_airport_callsign.str.match(icao).any():
-                lat = self.airports.loc[self.airports["IATA/LID"] == icao, "LAT"].item()
-                long = self.airports.loc[self.airports["IATA/LID"] == icao, "LONG"].item()
-                if pos.str.contains("DEL|GND|TWR").any():
-                    folium.Marker(location=(lat, long), popup=popup_text, tooltip=icao).add_to(self.map)
-                    self.set_marker = True
-                if pos.str.contains("APP").any():
-                    if not self.set_marker:
-                        folium.Marker(location=(lat, long), popup=popup_text, tooltip=icao).add_to(self.map)
-                    folium.CircleMarker(location=(lat, long), radius=25, color="#3186cc", fill=True,
-                                        fill_color="#3186cc", tooltip=icao).add_to(self.map)
+            elif matching_on_alt_airport_code:
+                self.handle_alt_airport_code(icao, pos)
 
             # Station ID is an FIR identifier
             else:
-                fir_ids = (icao + "-" + pos)
-                for fir_id in fir_ids:
-                    if "_" in fir_id:
-                        fir_id_formatted = fir_id.split("_")[0]
-                    else:
-                        fir_id_formatted = fir_id.split("-")[0]
-                    fir_csp = "_".join(fir_id_formatted.split("-")[:2])
-                    fir_icao = fir_csp.split("_")[0]
+                self.handle_fir(icao, pos)
 
-                    # The FIR identifier matches in the GeoJSON db
-                    if self.fir_boundaries["id"].str.match(fir_id_formatted).any():
-                        print("{} produced a direct match.".format(fir_id_formatted))
-                        bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_formatted, "geometry"]
-                        folium.GeoJson(bnd_polygon, tooltip=fir_id_formatted,
-                                       style_function=lambda x: self.style).add_to(self.map)
+    def handle_airport_code(self, icao_code, n_matches, position):
+        # Airport has no duplicates
+        if n_matches == 1:
+            lat = self.airports.loc[self.airports["ICAO"] == icao_code, "LAT"].item()
+            long = self.airports.loc[self.airports["ICAO"] == icao_code, "LONG"].item()
+        # Airport has duplicates, but coordinates are the same --> take the first entry
+        else:
+            lat = self.airports.loc[self.airports["ICAO"] == icao_code, "LAT"].values[0]
+            long = self.airports.loc[self.airports["ICAO"] == icao_code, "LONG"].values[0]
+        if position.str.contains("DEL|GND|TWR").any():
+            folium.Marker(location=(lat, long), popup=self.popup_text, tooltip=icao_code).add_to(self.map)
+            self.set_marker = True
+        if position.str.contains("APP").any():
+            if not self.set_marker:
+                folium.Marker(location=(lat, long), popup=self.popup_text, tooltip=icao_code).add_to(self.map)
+            folium.CircleMarker(location=(lat, long), radius=25, color="#3186cc", fill=True,
+                                fill_color="#3186cc", tooltip=icao_code).add_to(self.map)
 
-                    # No exact match in GeoJSON boundary database --> Map the callsign prefix to the corresponding FIR id
-                    elif self.fir_information["CALLSIGN PREFIX"].str.match(fir_csp).any():
-                        print("{} has no direct match. Matching the callsign {}.".format(fir_id_formatted, fir_csp))
-                        fir_id_alt = self.fir_information.loc[
-                            self.fir_information["CALLSIGN PREFIX"] == fir_csp, "FIR BOUNDARY"].item()
-                        bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_alt, "geometry"]
-                        folium.GeoJson(bnd_polygon, tooltip=fir_csp, style_function=lambda x: self.style).add_to(
-                            self.map)
-                    # The callsign prefix didn't match either --> Discard the suffix and match on the ICAO only (inaccurate, but hey, what can ya do?)
-                    elif self.fir_boundaries["id"].str.match(fir_icao).any():
-                        print("{} failed. Matching on {}.".format(fir_csp, fir_icao))
-                        bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_icao, "geometry"]
-                        folium.GeoJson(bnd_polygon, tooltip=fir_icao, style_function=lambda x: self.style).add_to(
-                            self.map)
+    def handle_alt_airport_code(self, icao_code, position):
+        lat = self.airports.loc[self.airports["IATA/LID"] == icao_code, "LAT"].item()
+        long = self.airports.loc[self.airports["IATA/LID"] == icao_code, "LONG"].item()
+        if position.str.contains("DEL|GND|TWR").any():
+            folium.Marker(location=(lat, long), popup=self.popup_text, tooltip=icao_code).add_to(self.map)
+            self.set_marker = True
+        if position.str.contains("APP").any():
+            if not self.set_marker:
+                folium.Marker(location=(lat, long), popup=self.popup_text, tooltip=icao_code).add_to(self.map)
+            folium.CircleMarker(location=(lat, long), radius=25, color="#3186cc", fill=True,
+                                fill_color="#3186cc", tooltip=icao_code).add_to(self.map)
+
+    def handle_fir(self, icao_code, position):
+        fir_id = (icao_code + "-" + position)
+        for fir_id in fir_id:
+            if "_" in fir_id:
+                fir_id_formatted = fir_id.split("_")[0]
+            else:
+                fir_id_formatted = fir_id.split("-")[0]
+            fir_csp = "_".join(fir_id_formatted.split("-")[:2])
+            fir_icao = fir_csp.split("_")[0]
+
+            # The FIR identifier matches in the GeoJSON db
+            if self.fir_boundaries["id"].str.match(fir_id_formatted).any():
+                print("{} produced a direct match.".format(fir_id_formatted))
+                bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_formatted, "geometry"]
+                folium.GeoJson(bnd_polygon, tooltip=fir_id_formatted,
+                               style_function=lambda x: self.style).add_to(self.map)
+
+            # No exact match in GeoJSON boundary database --> Map the callsign prefix to the corresponding FIR id
+            elif self.fir_information["CALLSIGN PREFIX"].str.match(fir_csp).any():
+                print("{} has no direct match. Matching the callsign {}.".format(fir_id_formatted, fir_csp))
+                fir_id_alt = self.fir_information.loc[
+                    self.fir_information["CALLSIGN PREFIX"] == fir_csp, "FIR BOUNDARY"].item()
+                bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_alt, "geometry"]
+                folium.GeoJson(bnd_polygon, tooltip=fir_csp, style_function=lambda x: self.style).add_to(
+                    self.map)
+            # The callsign prefix didn't match either --> Discard the suffix and match on the ICAO only (inaccurate, but hey, what can ya do?)
+            elif self.fir_boundaries["id"].str.match(fir_icao).any():
+                print("{} failed. Matching on {}.".format(fir_csp, fir_icao))
+                bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_icao, "geometry"]
+                folium.GeoJson(bnd_polygon, tooltip=fir_icao, style_function=lambda x: self.style).add_to(
+                    self.map)
 
     def draw(self) -> folium.Map:
         return self.map
