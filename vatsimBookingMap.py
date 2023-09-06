@@ -28,6 +28,11 @@ class vatsimBookingMapWidget(QWidget):
         self.draw_map()
         self.render_events_page()
 
+    def draw_map(self):
+        self.init_vatsimMap()
+        self.ui.mapWidget.setHtml(self.vat_map.get_root().render())
+        self.render_booking_dataframe()
+
     def init_vatsimMap(self):
         statsim_url = "https://statsim.net/atc/?json=true"
         vatspy_data = "{}/db/VATSpy.dat".format(os.getcwd())
@@ -40,18 +45,14 @@ class vatsimBookingMapWidget(QWidget):
         self.renderer.render(timestamp=desired_timestamp)
         self.vat_map = self.renderer.get_map()
 
-    def draw_map(self):
-        self.init_vatsimMap()
-        self.ui.mapWidget.setHtml(self.vat_map.get_root().render())
-        self.render_booking_dataframe()
-
     def render_booking_dataframe(self):
         df = self.renderer.get_desired_bookings()
         df_html = df.to_html(index=False)
         self.ui.bookingDfWidget.setHtml(df_html)
 
     def render_events_page(self):
-        self.ui.eventsTodayWidget.load(QUrl("https://vatsim.net/events"))
+        # self.ui.eventsTodayWidget.load(QUrl("https://vatsim.net/events"))
+        self.ui.eventsTodayWidget.load(QUrl("https://aviation.allanville.com/vatsim/events"))
 
 
 if __name__ == "__main__":

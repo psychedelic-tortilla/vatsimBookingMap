@@ -8,6 +8,12 @@ from folium import plugins
 import geopandas as gpd
 import pandas as pd
 
+pd.options.mode.chained_assignment = None
+pd.set_option('display.max_rows', None)
+pd.set_option('display.max_columns', None)
+pd.set_option('display.width', None)
+pd.set_option('display.max_colwidth', 1000)
+
 
 class Bookings(object):
     def __init__(self, booking_data):
@@ -54,10 +60,10 @@ class Map(object):
         self.filtered_bookings = filtered_bookings
         self.airports = airports
         self.fir_information = fir_information
-        self.fir_boundaries = fir_boundaries
+        self.fir_boundaries = fir_boundaries.reset_index(drop=True)
         self.fir_idents = []
         self.style = {'fillColor': '#f5532f80', 'color': '#ff213680'}
-        self.popup_text = None
+        self.popup_text_position = None
         self.set_marker = False
 
         self.populate_map()
@@ -72,13 +78,12 @@ class Map(object):
         for icao in online_stations:
             self.set_marker = False
 
-            pos = self.filtered_bookings.loc[self.filtered_bookings["airport"] == icao, "position"]
-            pos_time = self.filtered_bookings.loc[self.filtered_bookings["airport"] == icao,
-                       "position":"end"]  # .to_string(index=False)
-            pos_time_html = pos_time.to_html(index=False)
+            position = self.filtered_bookings.loc[self.filtered_bookings["airport"] == icao, "position"]
+            timetable_position = self.filtered_bookings.loc[self.filtered_bookings["airport"] == icao, "position":"end"]
+            html_timetable_position = timetable_position.to_html(index=False)
 
-            iframe = folium.IFrame(html=pos_time_html, width=300, height=200)
-            self.popup_text = folium.Popup(iframe, max_width=2650, parse_html=True)
+            iframe = folium.IFrame(html=html_timetable_position, width=300, height=200)
+            self.popup_text_position = folium.Popup(iframe, max_width=2650, parse_html=True)
 
             matching_on_icao = airport_codes.str.match(icao).any()
             matching_on_alt_airport_code = alt_airport_codes.str.match(icao).any()
@@ -88,25 +93,26 @@ class Map(object):
 
             # Station ID matches on both the airport and a FIR (sometimes happens in Russia)
             if (matching_on_icao and matching_on_fir) or (matching_on_icao and matching_on_cs_prefix):
-                self.handle_icao(icao, number_of_matches, pos)
-                self.handle_fir(icao, pos)
+                self.handle_icao(icao, number_of_matches, position)
+                self.handle_fir(icao, position)
 
             elif (matching_on_alt_airport_code and matching_on_fir) or (
                     matching_on_alt_airport_code and matching_on_cs_prefix):
-                self.handle_alt_airport_code(icao, pos)
-                self.handle_fir(icao, pos)
+                self.handle_alt_airport_code(icao, position)
+                self.handle_fir(icao, position)
 
             # Station ID is an airport and has the normal ICAO identifier
             elif matching_on_icao:
-                self.handle_icao(icao, number_of_matches, pos)
+                self.handle_icao(icao, number_of_matches, position)
 
             # Station ID is an alternate callsign (thanks for nothing, UK)
             elif matching_on_alt_airport_code:
-                self.handle_alt_airport_code(icao, pos)
+                self.handle_alt_airport_code(icao, position)
 
             # Station ID is an FIR identifier
             else:
-                self.handle_fir(icao, pos)
+                # self.handle_fir(icao, position)
+                self.handle_fir_alt(icao)
 
     def handle_icao(self, icao_code, n_matches, position):
         # Airport has no duplicates
@@ -118,11 +124,11 @@ class Map(object):
             lat = self.airports.loc[self.airports["ICAO"] == icao_code, "LAT"].values[0]
             long = self.airports.loc[self.airports["ICAO"] == icao_code, "LONG"].values[0]
         if position.str.contains("DEL|GND|TWR").any():
-            folium.Marker(location=(lat, long), popup=self.popup_text, tooltip=icao_code).add_to(self.map)
+            folium.Marker(location=(lat, long), popup=self.popup_text_position, tooltip=icao_code).add_to(self.map)
             self.set_marker = True
         if position.str.contains("APP").any():
             if not self.set_marker:
-                folium.Marker(location=(lat, long), popup=self.popup_text, tooltip=icao_code).add_to(self.map)
+                folium.Marker(location=(lat, long), popup=self.popup_text_position, tooltip=icao_code).add_to(self.map)
             folium.CircleMarker(location=(lat, long), radius=25, color="#3186cc", fill=True, fill_color="#3186cc",
                                 tooltip=icao_code).add_to(self.map)
 
@@ -130,43 +136,59 @@ class Map(object):
         lat = self.airports.loc[self.airports["IATA/LID"] == icao_code, "LAT"].item()
         long = self.airports.loc[self.airports["IATA/LID"] == icao_code, "LONG"].item()
         if position.str.contains("DEL|GND|TWR").any():
-            folium.Marker(location=(lat, long), popup=self.popup_text, tooltip=icao_code).add_to(self.map)
+            folium.Marker(location=(lat, long), popup=self.popup_text_position, tooltip=icao_code).add_to(self.map)
             self.set_marker = True
         if position.str.contains("APP").any():
             if not self.set_marker:
-                folium.Marker(location=(lat, long), popup=self.popup_text, tooltip=icao_code).add_to(self.map)
+                folium.Marker(location=(lat, long), popup=self.popup_text_position, tooltip=icao_code).add_to(self.map)
             folium.CircleMarker(location=(lat, long), radius=25, color="#3186cc", fill=True, fill_color="#3186cc",
                                 tooltip=icao_code).add_to(self.map)
 
     def handle_fir(self, icao_code, position):
         fir_id = (icao_code + "-" + position)
-        for fir_id in fir_id:
-            if "_" in fir_id:
-                fir_id_formatted = fir_id.split("_")[0]
+
+        for fir in fir_id:
+            if "_" in fir:
+                fir_id_formatted = fir.split("_")[0]
             else:
-                fir_id_formatted = fir_id.split("-")[0]
+                fir_id_formatted = fir.split("-")[0]
             fir_csp = "_".join(fir_id_formatted.split("-")[:2])
-            fir_icao = fir_csp.split("_")[0]
 
             # The FIR identifier matches in the GeoJSON db
             if self.fir_boundaries["id"].str.match(fir_id_formatted).any():
-                print("{} produced a direct FIR match.".format(fir_id_formatted))
+                # print("{} produced a direct FIR match.".format(fir_id_formatted))
                 bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_formatted, "geometry"]
-                folium.GeoJson(bnd_polygon, tooltip=fir_id_formatted, style_function=lambda x: self.style).add_to(
-                    self.map)
+                folium.GeoJson(bnd_polygon, tooltip=fir_id_formatted, style_function=lambda x: self.style,
+                               name=fir_id_formatted).add_to(self.map)
 
             # No exact match in GeoJSON boundary database --> Map the callsign prefix to the corresponding FIR id
             elif self.fir_information["CALLSIGN PREFIX"].str.match(fir_csp).any():
-                print("{} has no direct FIR match. Matching the callsign prefix {}.".format(fir_id_formatted, fir_csp))
+                # print("{} has no direct FIR match. Matching the callsign prefix {}.".format(fir_id_formatted, fir_csp))
                 fir_id_alt = self.fir_information.loc[
                     self.fir_information["CALLSIGN PREFIX"] == fir_csp, "FIR BOUNDARY"].item()
                 bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_alt, "geometry"]
                 folium.GeoJson(bnd_polygon, tooltip=fir_csp, style_function=lambda x: self.style).add_to(self.map)
+
             # The callsign prefix didn't match either --> Discard the suffix and match on the ICAO only (inaccurate, but hey, what can ya do?)
-            elif self.fir_boundaries["id"].str.match(fir_icao).any():
-                print("{} failed. Matching on {}.".format(fir_csp, fir_icao))
-                bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_icao, "geometry"]
-                folium.GeoJson(bnd_polygon, tooltip=fir_icao, style_function=lambda x: self.style).add_to(self.map)
+            elif self.fir_boundaries["id"].str.match(icao_code).any():
+                # print("{} failed. Matching on {}.".format(fir_csp, fir_icao))
+                bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == icao_code, "geometry"]
+                folium.GeoJson(bnd_polygon, tooltip=icao_code, style_function=lambda x: self.style).add_to(self.map)
+
+    def handle_fir_alt(self, icao_code):
+        df = self.filtered_bookings.loc[self.filtered_bookings["airport"] == icao_code].reset_index(drop=True)
+
+        # Construct ID for matching in boundaries GeoJSON
+        df["id"] = df["airport"].str.cat(df["position"].str.split("[_CTR]").map(lambda x: x[0]), sep="-").map(
+            lambda x: x if x[-1] != "-" else x.split("-")[0])
+
+        # Construct callsign prefix
+        df["callsign prefix"] = df["airport"].str.cat(df["position"].str.split("[_CTR]").map(lambda x: x[0]), sep="_").map(
+            lambda x: x if x[-1] != "_" else x.split("_")[0])
+
+        df2 = df.merge(right=self.fir_boundaries, on="id", how='left')
+        df2.to_html("L:/Projects/vatsimBookingMap/debug/df2.html")
+
 
     def draw(self) -> folium.Map:
         return self.map
@@ -179,25 +201,24 @@ class Renderer(object):
         self.airports = Airports(vatspy_path).df
         self.fir = FIRs(vatspy_path, boundaries_path)
         self.rendered_map = None
-        self.desired_bookings = None
+        self.filtered_bookings = None
 
     def render(self, timestamp: pd.Timestamp):
         fir_info = self.fir.fir_info
         fir_bounds = self.fir.fir_boundaries
 
-        desired_date = timestamp.date()
-        desired_time = timestamp.time()
+        date = timestamp.date()
+        time = timestamp.time()
 
-        self.desired_bookings = self.bookings[
-            (self.bookings["date"] == desired_date) & (self.bookings["start"] <= desired_time) & (
-                    desired_time < self.bookings["end"])]
-        self.desired_bookings = self.desired_bookings.sort_values("airport")
+        self.filtered_bookings = self.bookings[
+            (self.bookings["date"] == date) & (self.bookings["start"] <= time) & (time < self.bookings["end"])]
+        self.filtered_bookings = self.filtered_bookings.sort_values("airport")
 
-        self.rendered_map = Map(self.desired_bookings, self.airports, fir_info, fir_bounds).draw()
+        self.rendered_map = Map(self.filtered_bookings, self.airports, fir_info, fir_bounds).draw()
 
     def get_map(self) -> folium.Map:
         self.rendered_map.save("{}/vatsimBookingMap.html".format(os.getcwd()))
         return self.rendered_map
 
     def get_desired_bookings(self):
-        return self.desired_bookings
+        return self.filtered_bookings
