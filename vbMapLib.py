@@ -8,6 +8,7 @@ from folium import plugins
 import geopandas as gpd
 import pandas as pd
 import matplotlib.pyplot as plt
+import re
 
 pd.options.mode.chained_assignment = None
 pd.set_option('display.max_rows', None)
@@ -51,6 +52,8 @@ class FIRs(object):
         self.fir_info = pd.read_csv(fir_data_path, skiprows=17799, nrows=(18441 - 17800), sep="|").rename(
             columns={";ICAO": "ICAO"})
         self.fir_boundaries = gpd.read_file(fir_boundaries_path)
+        self.fir_boundaries = self.fir_boundaries.drop_duplicates(subset=["id"], keep="first")
+        self.fir_boundaries["drawn"] = False
 
 
 class Map(object):
@@ -148,32 +151,40 @@ class Map(object):
         fir_id = (icao_code + "-" + position)
 
         for fir in fir_id:
+            # EDWW-H_CTR --> EDDW-H
             if "_" in fir:
                 fir_id_formatted = fir.split("_")[0]
+            # URRV-CTR --> URRV
             else:
                 fir_id_formatted = fir.split("-")[0]
             fir_csp = "_".join(fir_id_formatted.split("-")[:2])
 
             # The FIR identifier matches in the GeoJSON db
             if self.fir_boundaries["id"].str.match(fir_id_formatted).any():
-                # print("{} produced a direct FIR match.".format(fir_id_formatted))
-                bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_formatted, "geometry"]
-                folium.GeoJson(bnd_polygon, tooltip=fir_id_formatted, style_function=lambda x: self.style,
-                               name=fir_id_formatted).add_to(self.map)
+                if not self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_formatted, "drawn"].item():
+                    # print("{} produced a direct FIR match.".format(fir_id_formatted))
+                    bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_formatted, "geometry"]
+                    folium.GeoJson(bnd_polygon, tooltip=fir_id_formatted, style_function=lambda x: self.style,
+                                   name=fir_id_formatted).add_to(self.map)
+                    self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_formatted, "drawn"] = True
 
             # No exact match in GeoJSON boundary database --> Map the callsign prefix to the corresponding FIR id
             elif self.fir_information["CALLSIGN PREFIX"].str.match(fir_csp).any():
                 # print("{} has no direct FIR match. Matching the callsign prefix {}.".format(fir_id_formatted, fir_csp))
                 fir_id_alt = self.fir_information.loc[
                     self.fir_information["CALLSIGN PREFIX"] == fir_csp, "FIR BOUNDARY"].item()
-                bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_alt, "geometry"]
-                folium.GeoJson(bnd_polygon, tooltip=fir_csp, style_function=lambda x: self.style).add_to(self.map)
+                if not self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_alt, "drawn"].item():
+                    bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_alt, "geometry"]
+                    folium.GeoJson(bnd_polygon, tooltip=fir_csp, style_function=lambda x: self.style).add_to(self.map)
+                    self.fir_boundaries.loc[self.fir_boundaries["id"] == fir_id_alt, "drawn"] = True
 
             # The callsign prefix didn't match either --> Discard the suffix and match on the ICAO only (inaccurate, but hey, what can ya do?)
             elif self.fir_boundaries["id"].str.match(icao_code).any():
                 # print("{} failed. Matching on {}.".format(fir_csp, fir_icao))
-                bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == icao_code, "geometry"]
-                folium.GeoJson(bnd_polygon, tooltip=icao_code, style_function=lambda x: self.style).add_to(self.map)
+                if not self.fir_boundaries.loc[self.fir_boundaries["id"] == icao_code, "drawn"].item():
+                    bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == icao_code, "geometry"]
+                    folium.GeoJson(bnd_polygon, tooltip=icao_code, style_function=lambda x: self.style).add_to(self.map)
+                    self.fir_boundaries.loc[self.fir_boundaries["id"] == icao_code, "drawn"] = True
 
     def draw(self) -> folium.Map:
         return self.map
