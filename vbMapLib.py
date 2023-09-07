@@ -7,12 +7,11 @@ import folium
 from folium import plugins
 import geopandas as gpd
 import pandas as pd
+import matplotlib.pyplot as plt
 
 pd.options.mode.chained_assignment = None
 pd.set_option('display.max_rows', None)
 pd.set_option('display.max_columns', None)
-pd.set_option('display.width', None)
-pd.set_option('display.max_colwidth', 1000)
 
 
 class Bookings(object):
@@ -56,7 +55,9 @@ class FIRs(object):
 
 class Map(object):
     def __init__(self, filtered_bookings, airports, fir_information, fir_boundaries):
-        self.map = folium.Map(location=(51.250982119671754, 10.489567530592556), zoom_start=6)
+        self.map = folium.Map(location=(51.250982119671754, 10.489567530592556), zoom_start=6, zoom_control=False,
+                              tiles="https://tile.openstreetmap.de/{z}/{x}/{y}.png",
+                              attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors')
         self.filtered_bookings = filtered_bookings
         self.airports = airports
         self.fir_information = fir_information
@@ -111,8 +112,7 @@ class Map(object):
 
             # Station ID is an FIR identifier
             else:
-                # self.handle_fir(icao, position)
-                self.handle_fir_alt(icao)
+                self.handle_fir(icao, position)  # self.handle_fir_alt(icao)
 
     def handle_icao(self, icao_code, n_matches, position):
         # Airport has no duplicates
@@ -174,21 +174,6 @@ class Map(object):
                 # print("{} failed. Matching on {}.".format(fir_csp, fir_icao))
                 bnd_polygon = self.fir_boundaries.loc[self.fir_boundaries["id"] == icao_code, "geometry"]
                 folium.GeoJson(bnd_polygon, tooltip=icao_code, style_function=lambda x: self.style).add_to(self.map)
-
-    def handle_fir_alt(self, icao_code):
-        df = self.filtered_bookings.loc[self.filtered_bookings["airport"] == icao_code].reset_index(drop=True)
-
-        # Construct ID for matching in boundaries GeoJSON
-        df["id"] = df["airport"].str.cat(df["position"].str.split("[_CTR]").map(lambda x: x[0]), sep="-").map(
-            lambda x: x if x[-1] != "-" else x.split("-")[0])
-
-        # Construct callsign prefix
-        df["callsign prefix"] = df["airport"].str.cat(df["position"].str.split("[_CTR]").map(lambda x: x[0]), sep="_").map(
-            lambda x: x if x[-1] != "_" else x.split("_")[0])
-
-        df2 = df.merge(right=self.fir_boundaries, on="id", how='left')
-        df2.to_html("L:/Projects/vatsimBookingMap/debug/df2.html")
-
 
     def draw(self) -> folium.Map:
         return self.map
