@@ -51,7 +51,7 @@ class vatsimBookingMapWidget(QWidget):
         self.ui.bookingDfWidget.setHtml(df_html)
 
     def render_events_page(self):
-        # self.ui.eventsTodayWidget.load(QUrl("https://vatsim.net/events"))
+        self.ui.eventsTodayWidget.page().profile().setHttpUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36")
         self.ui.eventsTodayWidget.load(QUrl("https://aviation.allanville.com/vatsim/events"))
 
 
